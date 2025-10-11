@@ -50,9 +50,16 @@ class Blockchain(object):
     def valid_proof(self, index, hash_of_previous_block, transactions, nonce):
         """Validates if the generated hash meets the difficulty requirement (difficulty_target)."""
         # Combine all block data for hashing
-        content = f'{index}{hash_of_previous_block}{transactions}{nonce}'.encode()
+        # Serialize transactions deterministically so different Python reprs don't change the hash
+        try:
+            transactions_string = json.dumps(transactions, sort_keys=True)
+        except (TypeError, ValueError):
+            # Fallback to plain string conversion if JSON serialization fails for some reason
+            transactions_string = str(transactions)
+
+        content = f'{index}{hash_of_previous_block}{transactions_string}{nonce}'.encode()
         content_hash = hashlib.sha256(content).hexdigest()
-        
+
         return content_hash[:len(self.difficulty_target)] == self.difficulty_target
     
     def append_block(self, nonce, hash_of_previous_block):
@@ -60,7 +67,8 @@ class Blockchain(object):
         block = {
             'index': len(self.chain),
             'timestamp': time(),
-            'transaction': self.current_transactions,
+            # store a copy of transactions so clearing the current list below doesn't mutate the saved block
+            'transaction': list(self.current_transactions),
             'nonce': nonce,
             'hash_of_previous_block': hash_of_previous_block
         }
@@ -85,9 +93,15 @@ class Blockchain(object):
     def add_node(self, address):
         """Adds a new node (peer) to the list of nodes."""
         parse_url = urlparse(address)
-        if parse_url.netloc:
-            self.nodes.add(parse_url.netloc)
-        print(f"Node added: {parse_url.netloc}")
+        # Accept both full URLs (http://host:port) and plain host:port strings
+        netloc = parse_url.netloc or parse_url.path
+        if netloc:
+            # remove any trailing slashes
+            netloc = netloc.rstrip('/')
+            self.nodes.add(netloc)
+            print(f"Node added: {netloc}")
+        else:
+            print(f"Could not parse node address: {address}")
 
     def valid_chain(self, chain):
         """Validates the integrity of the chain: each block has a valid hash and correct PoW."""
